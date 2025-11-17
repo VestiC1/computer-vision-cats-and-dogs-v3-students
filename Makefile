@@ -21,16 +21,16 @@ run: ## Lance l'API localement
 # Commandes V3 (Nouvelles)
 # ============================================
 docker-up: ## Démarre tous les services Docker
-	docker-compose -f docker/docker-compose.yml up -d
+	docker compose --env-file .env -f docker/docker-compose.yml up -d
 
 docker-down: ## Arrête tous les services Docker
-	docker-compose -f docker/docker-compose.yml down
+	docker compose --env-file .env -f docker/docker-compose.yml down
 
 docker-logs: ## Affiche les logs des containers
-	docker-compose -f docker/docker-compose.yml logs -f
+	docker compose --env-file .env -f docker/docker-compose.yml logs -f
 
 docker-restart: ## Redémarre tous les services
-	docker-compose -f docker/docker-compose.yml restart
+	docker compose --env-file .env -f docker/docker-compose.yml restart
 
 monitor: ## Ouvre le dashboard Grafana
 	@echo "🌐 Grafana: http://localhost:3000"
