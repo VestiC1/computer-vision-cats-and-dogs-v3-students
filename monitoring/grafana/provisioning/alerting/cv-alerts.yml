@@ -28,6 +28,71 @@ groups:
   # ─────────────────────────────────────────────────────────────────────────
   # 📁 GROUPE D'ALERTES : Computer Vision Monitoring
   # ─────────────────────────────────────────────────────────────────────────
+  
+  - orgId: 1
+    name: cv-alert_high_latency
+    folder: Computer Vision
+    interval: 2m
+    rules:
+      - uid: af4i9i3g3mmtcf
+        title: alert_high_latency
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: builder
+              expr: rate(cv_inference_time_seconds_sum[5m]) / rate(cv_inference_time_seconds_count[5m])
+              instant: true
+              intervalMs: 1000
+              legendFormat: __auto
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                  - evaluator:
+                      params:
+                          - 2
+                      type: gt
+                    operator:
+                      type: and
+                    query:
+                      params:
+                          - C
+                    reducer:
+                      params: []
+                      type: last
+                    type: query
+              datasource:
+                  type: __expr__
+                  uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        keepFiringFor: 2m
+        annotations:
+          description: Latence moyenne > 2s pendant 2 minutes
+          summary: Latence élevée détectée
+        labels: {}
+        isPaused: false
+        notification_settings:
+          receiver: Discord CV Alerts  
+  
+  
+  
+  
+  
   - orgId: 1
     # 🏢 Organization ID (défaut : 1)
     

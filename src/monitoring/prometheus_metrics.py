@@ -143,3 +143,13 @@ def update_db_status(is_connected: bool):
 # - FastAPI Instrumentator: https://github.com/trallnag/prometheus-fastapi-instrumentator
 #
 # ═══════════════════════════════════════════════════════════════════════════
+
+# Créer métrique histogram pour latence
+inference_time_histogram = Histogram(
+    'cv_inference_time_seconds',
+    'Temps d\'inférence en secondes'
+)
+
+def track_inference_time(inference_time_ms: float):
+    """Enregistre le temps d'inférence"""
+    inference_time_histogram.observe(inference_time_ms / 1000)
