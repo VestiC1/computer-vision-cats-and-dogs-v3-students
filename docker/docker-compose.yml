@@ -114,7 +114,7 @@ services:
       # 🏥 HEALTHCHECK : Vérification automatique de l'état du service
       # Essentiel pour depends_on avec condition (voir cv_app ci-dessous)
       
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-catsdogs}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-catsdogs} -d ${DB_NAME:-cats_dogs_db}_${STUDENT_ID:-student01}"]
       # 🩺 Commande de test : pg_isready (utilitaire PostgreSQL)
       # Vérifie que le serveur accepte les connexions
       # Format CMD-SHELL : exécute dans un shell (permet variables d'env)
