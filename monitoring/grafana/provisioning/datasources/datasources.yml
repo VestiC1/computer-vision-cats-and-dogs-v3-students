@@ -25,4 +25,4 @@ datasources:
       postgresVersion: 1500
       timescaledb: false
     secureJsonData:
-      password: 'admin'
+      password: '?C@TS&D0GS!'

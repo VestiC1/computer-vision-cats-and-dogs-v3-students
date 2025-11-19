@@ -1,559 +1,108 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎓 DOCKER COMPOSE - STACK MLOps COMPLET
 # ═══════════════════════════════════════════════════════════════════════════════
-# 
-# 📚 OBJECTIF PÉDAGOGIQUE
-# Ce fichier orchestre l'ensemble des services nécessaires à un système MLOps
-# production-ready. Il illustre comment assembler :
-#   - Une application ML (FastAPI)
-#   - Une base de données (PostgreSQL)
-#   - Un système de métriques (Prometheus)
-#   - Des dashboards de monitoring (Grafana)
-#
-# 🎯 CONCEPTS CLÉS ABORDÉS
-# - Orchestration multi-conteneurs avec Docker Compose
-# - Gestion des dépendances entre services (depends_on, healthcheck)
-# - Configuration par variables d'environnement (.env)
-# - Persistance des données avec volumes
-# - Isolation réseau
-# - Monitoring et observabilité
-#
-# 📖 POUR ALLER PLUS LOIN
-# - Documentation Docker Compose: https://docs.docker.com/compose/
-# - Les 12 facteurs (12factor.net) pour applications cloud-native
-# - Patterns de monitoring avec Prometheus/Grafana
-#
-# ═══════════════════════════════════════════════════════════════════════════════
-
-version: '3.8'
-# 💡 Version du format Docker Compose
-# La version 3.8 offre les fonctionnalités modernes (healthchecks, depends_on avec conditions)
-# tout en restant compatible avec la plupart des environnements de production
 
 services:
-  # ═══════════════════════════════════════════════════════════════════════════
-  # 1️⃣ SERVICE POSTGRESQL - Base de données relationnelle
-  # ═══════════════════════════════════════════════════════════════════════════
-  # 
-  # 🎯 RÔLE : Stockage persistant des feedbacks utilisateurs et métadonnées
-  # 
-  # 📚 POURQUOI POSTGRESQL ?
-  # - ACID compliance : garantit l'intégrité des données (crucial pour les feedbacks)
-  # - Support JSON natif : stockage flexible des métadonnées de prédictions
-  # - Maturité : base de données éprouvée en production
-  # - Image Alpine : version légère (-50% de taille vs standard)
-  #
-  # 🔗 INTERACTIONS
-  # - Consommé par : cv_app (stockage feedbacks), grafana (dashboards SQL)
-  # - Dépendances : aucune (service de base)
-  # ═══════════════════════════════════════════════════════════════════════════
   postgres:
     image: postgres:15-alpine
-    # 💡 Image officielle PostgreSQL 15 basée sur Alpine Linux
-    # Alpine = distribution Linux ultra-légère (~5MB vs ~100MB pour Debian)
-    # Idéal pour conteneurs (démarrage rapide, moins de surface d'attaque)
-    
     container_name: cv_postgres_${STUDENT_ID:-student01}
-    # 💡 Nom fixe du conteneur (facilite les logs et le debugging)
-    # Sans cela, Docker génère un nom aléatoire (ex: cv_v3_postgres_1)
-    
     restart: unless-stopped
-    # 🔄 POLITIQUE DE REDÉMARRAGE
-    # - always : redémarre même si arrêté manuellement (trop agressif)
-    # - on-failure : uniquement en cas d'erreur (peut manquer des problèmes)
-    # - unless-stopped : redémarre sauf si arrêt manuel (RECOMMANDÉ pour production)
-    # - no : pas de redémarrage automatique (dev uniquement)
-    
     env_file:
       - ../.env
-    # 📁 Charge les variables d'environnement depuis .env (un niveau au-dessus)
-    # Bonne pratique : séparer secrets (.env, gitignored) et configuration (docker-compose)
-    
     environment:
-      # 🔐 CONFIGURATION BASE DE DONNÉES
-      # Syntaxe : ${VARIABLE:-valeur_par_defaut}
-      # Ordre de priorité : 1) .env, 2) valeur par défaut, 3) variable système
-      
       POSTGRES_DB: ${DB_NAME:-cats_dogs_db}_${STUDENT_ID:-student01}
-      # 💡 Nom de la base créée automatiquement au premier démarrage
-      # Défaut : cats_dogs_db (si DB_NAME absent du .env)
-      
       POSTGRES_USER: ${DB_USER:-catsdogs}
-      # 💡 Utilisateur propriétaire de la base (droits admin sur cette DB)
-      # ⚠️ NE PAS utiliser 'postgres' (superuser) pour l'application (principe du moindre privilège)
-      
       POSTGRES_PASSWORD: ${DB_PWD}
-      # 🔒 CRITIQUE : Mot de passe OBLIGATOIRE (pas de valeur par défaut)
-      # Si absent → erreur au démarrage (sécurité by design)
-    
     ports:
       - "${STUDENT_PORT_POSTGRES:-5433}:5432"
-    # 🌐 MAPPING DE PORTS : hôte:conteneur
-    # - 5433 (hôte) : port externe pour accès local (évite conflit si PostgreSQL déjà installé sur 5432)
-    # - 5432 (conteneur) : port interne standard PostgreSQL
-    # 💡 Les autres conteneurs utilisent postgres:5432 (réseau Docker interne)
-    # 💡 L'hôte utilise localhost:5433 (pour DBeaver, psql, etc.)
-    
     volumes:
-      # 💾 VOLUMES : Persistance et initialisation
-      
-      - postgres_data:/var/lib/postgresql/data #postgres_data_${STUDENT_ID:-student01}:/var/lib/postgresql/data
-      # 📦 Volume nommé (géré par Docker) pour PERSISTANCE des données
-      # /var/lib/postgresql/data = répertoire standard des données PostgreSQL
-      # ✅ Survit aux redémarrages et suppressions de conteneur
-      # ⚠️ Ne pas supprimer ce volume sans backup !
-      
+      - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
-      # 🎬 Script d'initialisation exécuté AU PREMIER DÉMARRAGE uniquement
-      # /docker-entrypoint-initdb.d/ = répertoire magique PostgreSQL
-      # :ro = read-only (bonne pratique sécurité)
-      # 💡 Utilise pour créer schéma, tables, index initiaux
-      # ⚠️ Ne se réexécute PAS si la base existe déjà (cf. postgres_data)
-    
     healthcheck:
-      # 🏥 HEALTHCHECK : Vérification automatique de l'état du service
-      # Essentiel pour depends_on avec condition (voir cv_app ci-dessous)
-      
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-catsdogs} -d ${DB_NAME:-cats_dogs_db}_${STUDENT_ID:-student01}"]
-      # 🩺 Commande de test : pg_isready (utilitaire PostgreSQL)
-      # Vérifie que le serveur accepte les connexions
-      # Format CMD-SHELL : exécute dans un shell (permet variables d'env)
-      
       interval: 10s
-      # ⏱️ Fréquence des vérifications : toutes les 10 secondes
-      # Compromis : trop fréquent = surcharge, trop rare = détection lente
-      
       timeout: 5s
-      # ⏳ Timeout par vérification : abandon après 5 secondes
-      # PostgreSQL démarre généralement en <1s, mais peut être plus long sous charge
-      
       retries: 5
-      # 🔁 Nombre d'échecs consécutifs avant de marquer "unhealthy"
-      # 5 tentatives × 10s = 50s max avant échec (raisonnable pour démarrage initial)
-    
-    # 📊 ÉTATS POSSIBLES DU HEALTHCHECK
-    # - starting : vérifications en cours (retries non atteintes)
-    # - healthy : test réussi
-    # - unhealthy : échec après N retries
-    # Visible via : docker ps (colonne STATUS)
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # 2️⃣ SERVICE APPLICATION FASTAPI - Cœur métier ML
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # 🎯 RÔLE : API de prédiction + interface web + export métriques Prometheus
-  #
-  # 📚 RESPONSABILITÉS
-  # - Inférence du modèle CNN (classification cats/dogs)
-  # - Collecte des feedbacks utilisateurs → PostgreSQL
-  # - Exposition des métriques Prometheus (/metrics)
-  # - Interface web (upload image + visualisation)
-  #
-  # 🔗 INTERACTIONS
-  # - Dépend de : postgres (stockage)
-  # - Consommé par : prometheus (scraping métriques), utilisateurs (HTTP)
-  # ═══════════════════════════════════════════════════════════════════════════
   cv_app:
     build:
       context: ..
-      # 📂 Contexte de build = répertoire parent (racine du projet)
-      # Permet d'accéder à src/, requirements/, models/ lors du build
-      # Le Dockerfile peut alors COPY ../src → /app/src
-      
       dockerfile: docker/Dockerfile.app
-      # 📄 Chemin relatif au contexte (..) du Dockerfile à utiliser
-      # Séparation propre : configs Docker dans docker/, code dans src/
-    
     container_name: cv_cats_dogs_app_${STUDENT_ID:-student01}
     restart: unless-stopped
-    
     env_file:
       - ../.env
-    
     environment:
-      # 🗄️ CONFIGURATION BASE DE DONNÉES
-      # Variables passées à l'application FastAPI
-      
       DB_HOST: postgres
-      # 🌐 Hostname du service PostgreSQL
-      # 💡 Docker Compose crée un réseau interne avec résolution DNS automatique
-      # "postgres" = nom du service → résolu vers IP interne du conteneur
-      # ⚠️ NE PAS utiliser localhost (= conteneur lui-même) ni 127.0.0.1
-      
       DB_PORT: 5432
-      # 🔌 Port INTERNE (dans le réseau Docker)
-      # Différent du port exposé à l'hôte (5433)
-      # Communication inter-conteneurs = rapide (pas de NAT)
-      
       DB_NAME: ${DB_NAME:-cats_dogs_db}_${STUDENT_ID:-student01}
       DB_USER: ${DB_USER:-catsdogs}
       DB_PWD: ${DB_PWD}
-      # 🔐 Même configuration que postgres (cohérence)
-      
       DB_TABLE_MONITORING: ${DB_TABLE_MONITORING:-predictions_feedback}
-      # 📊 Table de stockage des prédictions et feedbacks
-      # Créée par init-db.sql
-      
       API_TOKEN: ${API_TOKEN}
-      # 🔑 Token d'authentification pour endpoints protégés
-      # Exemple d'utilisation : POST /predict avec header Authorization: Bearer {token}
-      
       ENABLE_PROMETHEUS: "true"
-      # 📈 Active l'export de métriques Prometheus
-      # Expose automatiquement l'endpoint /metrics
-      # Format : Counter, Gauge, Histogram (voir prometheus_metrics.py)
-      
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
-      # 🔔 URL webhook pour notifications Discord (alerting)
-      # Optionnel (valeur vide = notifications désactivées)
-      # Format : https://discord.com/api/webhooks/{id}/{token}
-
       STUDENT_ID: ${STUDENT_ID:-student01}
-    
     ports:
       - "${STUDENT_PORT_API:-8000}:8000"
-      # 🌐 Port de l'API FastAPI (standard FastAPI)
-      # Accessible depuis : http://localhost:8000
-      # 💡 Un seul port car hôte = conteneur (pas de conflit potentiel)
-    
     volumes:
-      # 📁 MONTAGE DE VOLUMES : partage fichiers hôte ↔ conteneur
-      
       - ../data:/app/data:ro
-      # 📸 Dataset d'images (cats/dogs)
-      # :ro = read-only (l'app ne doit PAS modifier les données sources)
-      # 💡 Permet de tester avec de nouvelles images sans rebuild
-      
       - ../models:/app/models:ro
-      # 🧠 Modèle CNN pré-entraîné (.h5 ou .keras)
-      # :ro = sécurité (évite écrasement accidentel du modèle)
-      # 💡 Pour mettre à jour le modèle : remplacer fichier + redémarrer conteneur
-    
     depends_on:
       postgres:
         condition: service_healthy
-      # ⏳ ORDRE DE DÉMARRAGE AVEC VÉRIFICATION
-      # 
-      # 🎓 ÉVOLUTION DES DEPENDS_ON
-      # Version basique :
-      #   depends_on: [postgres]  
-      #   → démarre APRÈS postgres, mais sans attendre qu'il soit prêt
-      #   → Problème : connexion échoue si PostgreSQL encore en initialisation
-      #
-      # Version avancée (condition: service_healthy) :
-      #   → attend que le healthcheck de postgres soit "healthy"
-      #   → Garantit que la base accepte les connexions avant de démarrer l'app
-      #
-      # 💡 Sans healthcheck, depends_on ne garantit PAS que le service est prêt !
-      # Alternative : logique de retry dans l'app (moins propre)
-    
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      # 🩺 Vérifie que l'API répond sur l'endpoint /health
-      # curl -f : fail silently si HTTP status ≠ 2xx/3xx
-      # 💡 Nécessite un endpoint /health dans FastAPI (à implémenter)
-      # Exemple réponse : {"status": "healthy", "database": "connected"}
-      
       interval: 30s
-      # ⏱️ 30s entre chaque check (moins fréquent que postgres car app plus stable)
-      
       timeout: 10s
-      # ⏳ Timeout augmenté (inférence CNN peut prendre quelques secondes)
-      
       retries: 3
-      # 🔁 3 échecs = unhealthy (3×30s = 90s max)
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # 3️⃣ SERVICE PROMETHEUS - Système de métriques time-series
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # 🎯 RÔLE : Collecte, stockage et requêtage des métriques applicatives
-  #
-  # 📚 PROMETHEUS EN BREF
-  # - Pull-based : scrape les endpoints /metrics (vs push comme StatsD)
-  # - Time-series DB : optimisé pour données horodatées (métrique + timestamp)
-  # - PromQL : langage de requêtage puissant pour alertes et graphiques
-  # - Service discovery : détecte automatiquement les targets à scraper
-  #
-  # 🔗 INTERACTIONS
-  # - Scrape : cv_app:8000/metrics (toutes les 15s par défaut, cf. prometheus.yml)
-  # - Consommé par : grafana (datasource), utilisateurs (UI web sur :9090)
-  #
-  # 📊 MÉTRIQUES COLLECTÉES (exemples)
-  # - http_requests_total : nombre de requêtes API
-  # - prediction_duration_seconds : latence d'inférence
-  # - model_accuracy : précision du modèle
-  # ═══════════════════════════════════════════════════════════════════════════
   prometheus:
     image: prom/prometheus:latest
-    # 📦 Image officielle Prometheus (maintenue par la CNCF)
-    # :latest = dernière version stable (alternative : tag spécifique pour prod)
-    
     container_name: cv_prometheus_${STUDENT_ID:-student01}
     restart: unless-stopped
-    
     command:
-      # 🚀 Arguments passés au démarrage de Prometheus
-      # Overwrite la commande par défaut de l'image
-      
       - '--config.file=/etc/prometheus/prometheus.yml'
-      # 📄 Fichier de configuration principal
-      # Définit : targets à scraper, alerting rules, storage settings
-      
       - '--storage.tsdb.path=/prometheus'
-      # 💾 Répertoire de stockage des time-series
-      # TSDB = Time Series Database (format propriétaire Prometheus)
-      # 💡 Monté sur volume nommé pour persistance
-      
       - '--web.enable-lifecycle'
-      # 🔄 Active l'endpoint HTTP POST /-/reload pour rechargement config
-      # Utile pour mettre à jour prometheus.yml sans redémarrage
-      # Exemple : curl -X POST http://localhost:9090/-/reload
-    
     ports:
       - "${STUDENT_PORT_PROMETHEUS:-9090}:9090"
-      # 🌐 Interface web Prometheus
-      # Accessible : http://localhost:9090
-      # Fonctionnalités :
-      #   - /graph : requêtes PromQL et graphiques ad-hoc
-      #   - /targets : statut des endpoints scrapés
-      #   - /alerts : règles d'alerte actives
-      #   - /config : configuration courante
-    
     volumes:
       - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      # ⚙️ Configuration principale (read-only)
-      # Contient : scrape_configs, alerting_rules, etc.
-      # 💡 Modifiable à chaud avec --web.enable-lifecycle
-      
       - ../monitoring/prometheus/rules:/etc/prometheus/rules:ro
-      # 🚨 Règles d'alerte (fichiers .yml)
-      # Exemple : alert si latence > 2s pendant 5min
-      # Format : groupes de règles avec expressions PromQL
-      
-      - prometheus_data:/prometheus #prometheus_data_${STUDENT_ID:-student01}:/prometheus
-      # 💾 Volume nommé pour TSDB (persistance des métriques)
-      # Taille : croît linéairement avec le nombre de métriques et la rétention
-      # ⚠️ Définir une politique de rétention (défaut : 15 jours)
-      # Configuration : --storage.tsdb.retention.time=30d
-    
+      - prometheus_data:/prometheus
     depends_on:
       - cv_app
-      # ⏳ Démarre APRÈS cv_app
-      # 💡 Pas de condition: service_healthy car Prometheus tolère les targets down
-      # Il marquera simplement cv_app comme "down" jusqu'à ce qu'elle réponde
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # 4️⃣ SERVICE GRAFANA - Plateforme de visualisation et alerting
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # 🎯 RÔLE : Dashboards interactifs + alerting avancé + notification Discord
-  #
-  # 📚 GRAFANA EN BREF
-  # - Multi-datasources : Prometheus, PostgreSQL, Elasticsearch, etc.
-  # - Provisioning : configuration as code (dashboards, datasources, alertes)
-  # - Unified Alerting : système d'alerte moderne (remplace legacy alerting)
-  # - Templating : dashboards dynamiques avec variables
-  #
-  # 🔗 INTERACTIONS
-  # - Datasources : prometheus (métriques), postgres (données métier)
-  # - Notifications : Discord webhook (alertes)
-  # - Consommé par : utilisateurs (dashboards web sur :3000)
-  #
-  # 🎨 DASHBOARDS PROVISIONNÉS
-  # - cv_dashboard.json : métriques ML (accuracy, latence, volume prédictions)
-  # ═══════════════════════════════════════════════════════════════════════════
   grafana:
     image: grafana/grafana:latest
-    # 📦 Image officielle Grafana Labs
-    
     container_name: cv_grafana_${STUDENT_ID:-student01}
     restart: unless-stopped
-    
     environment:
-      # 🔐 CREDENTIALS ADMIN (première connexion)
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      # ⚠️ CHANGER EN PRODUCTION ! Valeurs par défaut = risque sécurité
-      # Stockées en variables d'env pour rotation facile
-      
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      # 📁 Répertoire de provisioning automatique
-      # Grafana scanne ce dossier au démarrage et applique les configs
-      # Structure : datasources/, dashboards/, notifiers/, alerting/
-      
       GF_UNIFIED_ALERTING_ENABLED: "true"
-      # 🔔 Active le nouveau système d'alerte (Grafana 8+)
-      # Fonctionnalités :
-      #   - Multi-datasource alerting (pas que Prometheus)
-      #   - Regroupement d'alertes (notification groups)
-      #   - Silences et inhibitions avancées
-      
       GF_ALERTING_ENABLED: "false"
-      # 🚫 Désactive l'ancien système (legacy alerting)
-      # ⚠️ Les deux systèmes sont mutuellement exclusifs
-      # Unified = moderne, legacy = déprécié depuis Grafana 9
-
       GF_SERVER_ROOT_URL: "http://${VPS_HOST:-localhost}:${STUDENT_PORT_GRAFANA:-3000}"
       DB_NAME: ${DB_NAME:-cats_dogs_db}
       DB_USER: ${DB_USER:-catsdogs}
       DB_PWD: ${DB_PWD}
       STUDENT_ID: ${STUDENT_ID:-student01}
-    
     ports:
       - "${STUDENT_PORT_GRAFANA:-3000}:3000"
-      # 🌐 Interface web Grafana
-      # Accessible : http://localhost:3000
-      # Login : admin / admin (première fois)
-    
     volumes:
-      # 📂 PROVISIONING : Configuration automatique au démarrage
-      # 💡 Alternative au clic-clic dans l'UI (Infrastructure as Code)
-      
       - ../monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      # 🔌 Datasources (Prometheus, PostgreSQL)
-      # Fichier .yml définit : type, URL, accès, credentials
-      # Exemple : prometheus datasource → http://prometheus:9090
-      
       - ../monitoring/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
-      # 📋 Configuration des dashboards (métadonnées)
-      # Pointe vers le répertoire contenant les fichiers .json
-      
       - ../monitoring/grafana/provisioning/dashboards/cv_dashboard.json:/var/lib/grafana/dashboards/cv_dashboard.json:ro
-      # 📊 Dashboard principal (définition JSON complète)
-      # Contient : panels, queries PromQL, seuils d'alerte, layout
-      # 💡 Exportable depuis l'UI Grafana (Share → Export → Save to file)
-      
       - ../monitoring/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
-      # 🚨 Configuration Unified Alerting
-      # Contient : règles d'alerte, contact points (Discord), notification policies
-      # Format : fichiers .yml avec définition des alertes
-      
-      - grafana_data:/var/lib/grafana #grafana_data_${STUDENT_ID:-student01}:/var/lib/grafana
-      # 💾 Volume nommé pour persistance
-      # Contient : sessions utilisateurs, annotations, configurations modifiées via UI
-      # 💡 Les dashboards provisionnés sont read-only (modifs UI perdues au redémarrage)
-    
+      - grafana_data:/var/lib/grafana
     depends_on:
       postgres:
         condition: service_healthy
-      # ⏳ Attend PostgreSQL (datasource SQL pour dashboards métier)
-      
       prometheus:
         condition: service_started
-      # ⏳ Attend Prometheus (datasource principal pour métriques)
-      # 💡 service_started suffit (pas de healthcheck pour Prometheus ici)
-      # Grafana tolère les datasources temporairement inaccessibles
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 📦 VOLUMES - Persistance des données
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# 🎓 VOLUMES NOMMÉS vs BIND MOUNTS
-#
-# VOLUMES NOMMÉS (utilisés ici) :
-#   Syntaxe : volume_name:/chemin/conteneur
-#   Géré par : Docker (stockage dans /var/lib/docker/volumes/)
-#   Avantages :
-#     ✅ Portable (indépendant du système de fichiers hôte)
-#     ✅ Performance (optimisé par Docker)
-#     ✅ Backup facile (docker volume create --name=backup)
-#     ✅ Partage entre conteneurs
-#   Usages : bases de données, caches, logs
-#
-# BIND MOUNTS (utilisés pour config) :
-#   Syntaxe : ./chemin/hôte:/chemin/conteneur
-#   Géré par : système de fichiers hôte
-#   Avantages :
-#     ✅ Édition directe des fichiers (pas de docker cp)
-#     ✅ Version control (Git)
-#     ✅ Transparence (chemin explicite)
-#   Usages : code source, configs, fichiers statiques
-#
-# 💡 RÈGLE D'OR : Données → volumes nommés, Config → bind mounts
-# ═══════════════════════════════════════════════════════════════════════════════
 volumes:
-  postgres_data: #postgres_data_${STUDENT_ID:-student01}:
-    # 💾 Données PostgreSQL (tables, index, WAL logs)
-    # Taille : varie selon volume de feedbacks (ex: 100MB pour 100k prédictions)
-    # Backup : docker run --rm -v postgres_data:/data -v $(pwd):/backup alpine tar czf /backup/postgres.tar.gz /data
-    
-  prometheus_data: #prometheus_data_${STUDENT_ID:-student01}:
-    # 📈 Time-series Prometheus (chunks compressés)
-    # Taille : dépend de (nombre_métriques × scrape_interval × retention)
-    # Exemple : 100 métriques × 15s scrape × 30j retention ≈ 500MB
-    # Compression : ~10x (Prometheus stocke efficacement les séries temporelles)
-    
-  grafana_data: #grafana_data_${STUDENT_ID:-student01}:
-    # 🎨 Configurations Grafana (sessions, annotations, prefs utilisateur)
-    # Taille : généralement <100MB (léger)
-    # ⚠️ Ne contient PAS les dashboards provisionnés (read-only dans provisioning/)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🌐 RÉSEAU - Isolation et communication inter-conteneurs
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# 🎓 RÉSEAUX DOCKER COMPOSE
-#
-# Par défaut, Docker Compose crée un réseau bridge automatique :
-#   - Nom : {projet}_default (ex: cv_v3_default)
-#   - DNS automatique : résolution par nom de service (ex: postgres, cv_app)
-#   - Isolation : conteneurs de projets différents ne se voient pas
-#
-# Configuration custom (ci-dessous) :
-#   - Nom explicite : cv_mlops_network (plus lisible dans docker network ls)
-#   - Même comportement que default mais prévisible
-#
-# 💡 COMMUNICATION INTER-CONTENEURS
-#   cv_app → postgres:5432 ✅ (réseau interne, rapide)
-#   cv_app → localhost:5433 ❌ (localhost = le conteneur lui-même)
-#   grafana → prometheus:9090 ✅
-#   prometheus → cv_app:8000/metrics ✅
-#
-# 🔒 SÉCURITÉ
-#   - Conteneurs isolés de l'hôte (sauf ports exposés)
-#   - Pas d'accès internet par défaut (sauf si image pull ou apt-get)
-#   - Firewall : seuls les ports mappés (8000, 3000, etc.) sont accessibles depuis l'hôte
-#
-# 📊 DÉBOGAGE RÉSEAU
-#   docker network inspect cv_mlops_network  # voir IPs et conteneurs connectés
-#   docker exec cv_app ping prometheus       # tester connectivité
-#   docker logs cv_app | grep "connection"   # chercher erreurs connexion
-# ═══════════════════════════════════════════════════════════════════════════════
+  postgres_data:
+  prometheus_data:
+  grafana_data:
 networks:
   default:
     name: cv_mlops_network_${STUDENT_ID:-student01}
-    # 🏷️ Nom custom du réseau (remplace {projet}_default)
-    # Avantages :
-    #   - Lisibilité (docker network ls)
-    #   - Stabilité (pas de changement si répertoire renommé)
-    #   - Documentation (nom explicite = intention claire)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🚀 COMMANDES UTILES
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# DÉMARRAGE
-#   docker compose up -d                    # Démarre tous les services en arrière-plan
-#   docker compose up -d cv_app prometheus  # Démarre uniquement certains services
-#   docker compose up --build               # Rebuild les images avant démarrage
-#
-# MONITORING
-#   docker compose ps                       # Liste les conteneurs (status, ports, health)
-#   docker compose logs -f cv_app           # Suit les logs en temps réel
-#   docker compose logs --tail=100 postgres # 100 dernières lignes
-#
-# GESTION
-#   docker compose stop                     # Arrête sans supprimer
-#   docker compose restart cv_app           # Redémarre un service
-#   docker compose down                     # Arrête ET supprime conteneurs/réseau
-#   docker compose down -v                  # + supprime volumes (⚠️ perte données)
-#
-# DÉBOGAGE
-#   docker compose exec cv_app bash         # Shell interactif dans le conteneur
-#   docker compose exec postgres psql -U catsdogs -d cats_dogs_db  # Client PostgreSQL
-#   docker compose top                      # Processus en cours dans chaque conteneur
-#
-# NETTOYAGE
-#   docker compose down --rmi all           # Supprime aussi les images
-#   docker system prune -a --volumes        # ⚠️ Nettoie TOUT Docker (pas que ce projet)

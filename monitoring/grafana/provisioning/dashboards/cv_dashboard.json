@@ -205,7 +205,7 @@
               },
               {
                 "color": "red",
-                "value": 80
+                "value": 0.09
               }
             ]
           }
@@ -274,5 +274,5 @@
   "timezone": "",
   "title": "Computer Vision - Cats & Dogs (Workshop)",
   "uid": "cv-cats-dogs-workshop",
-  "version": 1
+  "version": 2
 }

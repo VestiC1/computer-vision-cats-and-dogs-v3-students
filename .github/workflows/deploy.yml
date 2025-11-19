@@ -1,72 +1,25 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚀 GITHUB ACTIONS - Déploiement Continu (CD)
 # ═══════════════════════════════════════════════════════════════════════════════
-#
-# 🎯 OBJECTIF PÉDAGOGIQUE
-# Pipeline CI/CD automatisant le déploiement sur VPS à chaque push sur main.
-# Illustre les concepts de déploiement continu, gestion de secrets, et SSH automation.
-#
-# 📚 CONCEPTS CLÉS
-# - CI/CD : Continuous Integration / Continuous Deployment
-# - Infrastructure as Code : déploiement reproductible et versionné
-# - Secrets management : credentials sécurisés (pas en clair dans le code)
-# - SSH automation : commandes distantes sécurisées
-# - Idempotence : script réexécutable sans effets de bord
-#
-# 🔗 WORKFLOW
-# 1. Push sur main → déclenche automatiquement
-# 2. GitHub Actions clone le code
-# 3. Connexion SSH au VPS
-# 4. Pull/clone du repo sur le VPS
-# 5. Rebuild des containers Docker
-# 6. Redémarrage de la stack MLOps
-#
-# ═══════════════════════════════════════════════════════════════════════════════
 
 name: Deploy to VPS
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 🎬 DÉCLENCHEURS (Triggers)
-# ─────────────────────────────────────────────────────────────────────────────
 on:
   push:
     branches:
       - main
-    # ✅ Déclenche à chaque push sur main (stratégie trunk-based development)
-    # Alternative : déployer uniquement sur tags (ex: v1.0.0) pour plus de contrôle
     
   workflow_dispatch:
-    # 🖱️ Permet déclenchement manuel depuis l'UI GitHub
-    # Utile pour : redéploiement après incident, rollback, tests
-    # Accessible : onglet Actions → Select workflow → Run workflow
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 💼 JOB DE DÉPLOIEMENT
-# ─────────────────────────────────────────────────────────────────────────────
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # 🖥️ Runner GitHub-hosted (machine virtuelle Ubuntu)
-    # Alternatives : self-hosted runner (sur le VPS lui-même, économise SSH)
     
     steps:
-      # ───────────────────────────────────────────────────────────────────────
-      # ÉTAPE 1 : Récupération du code
-      # ───────────────────────────────────────────────────────────────────────
+
       - name: 📥 Checkout code
         uses: actions/checkout@v4
-        # 📦 Action officielle GitHub : clone le repo dans le runner
-        # Équivalent à : git clone https://github.com/{owner}/{repo}.git
-        # @v4 : version de l'action (pinning pour stabilité)
-        #
-        # 💡 POURQUOI CHECKOUT ?
-        # Même si on re-clone sur le VPS, utile pour :
-        # - Futurs steps de tests (pytest, linting)
-        # - Build d'images Docker en local avant push registry
 
-      # ───────────────────────────────────────────────────────────────────────
-      # ÉTAPE 2 : Configuration SSH
-      # ───────────────────────────────────────────────────────────────────────
       - name: 🔐 Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -85,18 +38,7 @@ jobs:
           # 🛡️ Ajoute la clé publique du serveur (évite prompt "Are you sure?")
           # -H : hash du hostname (sécurité supplémentaire)
           # Alternative : ajouter manuellement la fingerprint du serveur
-        
-        # 🔐 SÉCURITÉ : SECRETS GITHUB
-        # Configuration : Settings → Secrets and variables → Actions
-        # Secrets requis :
-        #   - SSH_PRIVATE_KEY : clé privée ED25519 (publique sur VPS)
-        #   - VPS_HOST : IP ou domaine (ex: 51.178.42.69 ou app.monvps.com)
-        #   - VPS_USER : utilisateur SSH (ex: ubuntu, debian, deploy)
-        #   - GH_TOKEN : Personal Access Token pour clone privé (si repo privé)
 
-      # ───────────────────────────────────────────────────────────────────────
-      # ÉTAPE 3 : Déploiement sur le VPS
-      # ───────────────────────────────────────────────────────────────────────
       - name: 📦 Deploy to VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -169,88 +111,3 @@ jobs:
           echo ""
           echo "🧪 Test de santé:"
           curl -f http://${{ secrets.VPS_HOST }}:${{ secrets.STUDENT_PORT_API }}/health || echo "⚠️  API pas encore prête"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🎓 AMÉLIORATIONS POSSIBLES (pour aller plus loin)
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# 1. TESTS AVANT DÉPLOIEMENT
-#    - name: 🧪 Run tests
-#      run: |
-#        pip install -r requirements/dev.txt
-#        pytest tests/ -v
-#    → Évite déploiement si tests échouent
-#
-# 2. SMOKE TESTS POST-DÉPLOIEMENT
-#    - name: 🔥 Health check
-#      run: |
-#        curl -f http://${{ secrets.VPS_HOST }}:8000/health || exit 1
-#    → Vérifie que l'API répond (rollback auto si échec)
-#
-# 3. NOTIFICATIONS (Discord, Slack)
-#    - name: 📢 Notify deployment
-#      if: success()
-#      run: |
-#        curl -X POST ${{ secrets.DISCORD_WEBHOOK }} \
-#          -H "Content-Type: application/json" \
-#          -d '{"content":"✅ Déploiement V3 réussi !"}'
-#
-# 4. ROLLBACK AUTOMATIQUE
-#    - Sauvegarder hash du commit avant pull
-#    - Si healthcheck échoue → git reset --hard $PREVIOUS_HASH
-#
-# 5. STAGING ENVIRONMENT
-#    - Déployer d'abord sur staging (branches develop)
-#    - Validation manuelle → merge main → déploiement prod
-#
-# 6. DOCKER REGISTRY (optimisation)
-#    - Build image en CI → push vers DockerHub/GHCR
-#    - VPS pull image (pas de rebuild sur serveur)
-#    → Déploiement 10x plus rapide
-#
-# 7. SECRETS ROTATION
-#    - Automatiser rotation des credentials (DB, API tokens)
-#    - Utiliser HashiCorp Vault ou AWS Secrets Manager
-#
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🛠️ SETUP INITIAL DU VPS (à faire manuellement UNE FOIS)
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# 1. INSTALLATION DOCKER
-#    curl -fsSL https://get.docker.com | sh
-#    sudo usermod -aG docker $USER
-#
-# 2. CRÉATION STRUCTURE
-#    mkdir -p ~/apps
-#    cd ~/apps
-#    nano .env  # Remplir avec secrets production
-#
-# 3. CONFIGURATION SSH
-#    # Sur VPS
-#    ssh-keygen -t ed25519
-#    cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
-#    
-#    # Copier ~/.ssh/id_ed25519 dans GitHub Secrets (SSH_PRIVATE_KEY)
-#
-# 4. FIREWALL (ufw)
-#    sudo ufw allow 22    # SSH
-#    sudo ufw allow 8000  # FastAPI
-#    sudo ufw allow 3000  # Grafana
-#    sudo ufw allow 9090  # Prometheus
-#    sudo ufw enable
-#
-# 5. REVERSE PROXY (optionnel, recommandé)
-#    # Nginx avec SSL (Let's Encrypt)
-#    # api.mondomaine.com → localhost:8000
-#    # grafana.mondomaine.com → localhost:3000
-#
-# ═══════════════════════════════════════════════════════════════════════════════
-# 📚 RESSOURCES PÉDAGOGIQUES
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# - GitHub Actions docs: https://docs.github.com/en/actions
-# - Docker Compose in prod: https://docs.docker.com/compose/production/
-# - SSH best practices: https://www.ssh.com/academy/ssh/key
-# - CI/CD patterns: https://www.martinfowler.com/articles/continuousIntegration.html
-#
-# ═══════════════════════════════════════════════════════════════════════════════

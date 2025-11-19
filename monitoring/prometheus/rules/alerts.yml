@@ -1,187 +1,22 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚨 PROMETHEUS ALERTING RULES - Détection d'anomalies ML
 # ═══════════════════════════════════════════════════════════════════════════════
-#
-# 🎯 OBJECTIF PÉDAGOGIQUE
-# Fichier définissant les règles d'alerte Prometheus pour monitoring proactif.
-# Illustre comment transformer métriques brutes en alertes actionnables basées
-# sur des seuils métier et SLA (Service Level Agreements).
-#
-# 📚 CONCEPTS CLÉS
-# - Recording rules vs Alerting rules (ici : alerting)
-# - Expressions PromQL : aggregations, quantiles, taux
-# - Labels de sévérité : classification des incidents
-# - Clause "for" : durée avant déclenchement (évite faux positifs)
-# - Annotations : contexte pour l'équipe (summary, description, runbook)
-#
-# 🔗 INTÉGRATION
-# - Chargé par : monitoring/prometheus/prometheus.yml (rule_files)
-# - Évalué toutes les : 30s (interval du groupe)
-# - Notifie via : Alertmanager (si configuré) OU Grafana Unified Alerting
-#
-# ⚠️ STATUT EN V3
-# Ce fichier est COMMENTÉ dans prometheus.yml car alerting géré par Grafana.
-# Conservé pour référence pédagogique et compatibilité future.
-#
-# ═══════════════════════════════════════════════════════════════════════════════
 
 groups:
-  # ─────────────────────────────────────────────────────────────────────────
-  # 📊 GROUPE : Alertes modèle ML (performance et disponibilité)
-  # ─────────────────────────────────────────────────────────────────────────
+
   - name: cv_model_alerts
-    # 🏷️ Identifiant du groupe (organisationnel, apparaît dans UI Prometheus)
-    # Bonne pratique : regrouper par domaine (model, infra, business)
     
     interval: 30s
-    # ⏱️ Fréquence d'évaluation des règles de CE groupe
-    # Override du global evaluation_interval (15s dans prometheus.yml)
-    # 
-    # 💡 POURQUOI 30s ?
-    # Alertes moins critiques que défaut (tolérance délai +15s)
-    # Alternative : 15s pour alertes critiques, 60s pour warnings
     
     rules:
-      # ═══════════════════════════════════════════════════════════════════════
-      # 🚨 ALERTE 3 : Base de données déconnectée
-      # ═══════════════════════════════════════════════════════════════════════
       - alert: DatabaseDisconnected
         expr: cv_database_connected == 0
-        # 🔍 EXPRESSION SIMPLE (Gauge binaire)
-        # cv_database_connected :
-        #   1 = connecté (healthy)
-        #   0 = déconnecté (update_db_status(False) appelé)
-        #
-        # 💡 POURQUOI GAUGE (et pas Counter) ?
-        # État peut monter ET descendre (connexion rétablie)
-        # Counter = monotone croissant (inadapté pour état binaire)
         
         for: 1m
-        # ⏰ Durée courte (1 min) car incident infra critique
-        # Tolère reconnexions brèves (blips réseau) mais pas pannes prolongées
         
         labels:
           severity: critical
-          # 🔴 CRITICAL car :
-          # - Fonctionnalité feedback complètement cassée
-          # - Risque perte de données (prédictions non stockées)
-          # - Indicateur potentiel de problème infra plus large
         
         annotations:
           summary: "Database connection lost"
           description: "PostgreSQL is unreachable. Feedback storage disabled."
-          # 💡 ENRICHISSEMENT POSSIBLE
-          # description: |
-          #   PostgreSQL unreachable for {{ $activeAt | humanizeDuration }}
-          #   Impact: User feedback NOT saved
-          #   Actions:
-          #   1. Check docker ps (container running?)
-          #   2. Check docker logs cv_postgres
-          #   3. Verify network: docker exec cv_app ping postgres
-          #   4. Check disk space: df -h
-          # runbook_url: "https://wiki/runbooks/postgres-down"
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 🎓 CONCEPTS AVANCÉS (non implémentés, pour aller plus loin)
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# 1. RECORDING RULES (pré-calcul de queries coûteuses)
-#    groups:
-#      - name: cv_recording_rules
-#        interval: 60s
-#        rules:
-#          - record: cv:prediction_rate:5m
-#            expr: rate(cv_predictions_total[5m])
-#    → Stocke résultat pour réutilisation (dashboards, alertes)
-#    → Économise CPU Prometheus (query complexe exécutée 1 fois)
-#
-# 2. TEMPLATING DANS ANNOTATIONS
-#    annotations:
-#      description: "Current value: {{ $value | humanize }} (threshold: {{ $threshold }})"
-#      instance: "{{ $labels.instance }}"
-#    → Variables : $value, $labels, custom functions (humanize, humanizeDuration)
-#
-# 3. ALERTES MULTI-CONDITIONS (AND/OR)
-#    expr: |
-#      (rate(cv_predictions_total[5m]) < 0.1)
-#      and
-#      (cv_database_connected == 1)
-#    → Alerte uniquement si DB up ET trafic faible (écarte cause DB down)
-#
-# 4. ALERTES AVEC ABSENT() (détection métrique manquante)
-#    expr: absent(cv_predictions_total)
-#    → Fire si métrique n'existe plus (app crashée, scrape échoué)
-#
-# 5. GROUPING PAR LABELS
-#    expr: sum by (result) (rate(cv_predictions_total[5m])) < 0.05
-#    → Alerte séparée pour cats ET dogs (détection déséquilibre)
-#
-# 6. EXTERNAL LABELS (identification source)
-#    Dans prometheus.yml :
-#      global:
-#        external_labels:
-#          cluster: 'production'
-#          datacenter: 'eu-west-1'
-#    → Utile si fédération multi-Prometheus (alertes indiquent origine)
-#
-# ═══════════════════════════════════════════════════════════════════════════
-# 🛠️ COMMANDES UTILES
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# VALIDATION SYNTAXE
-#   promtool check rules alerts.yml
-#   → Vérifie YAML + expressions PromQL avant déploiement
-#
-# TEST ALERTE LOCALEMENT
-#   promtool test rules test_alerts.yml
-#   → Avec fichier test définissant séries temporelles fictives
-#
-# VISUALISATION ALERTES ACTIVES
-#   http://localhost:9090/alerts
-#   → UI Prometheus listant alertes (inactive/pending/firing)
-#
-# SIMULATION DÉCLENCHEMENT
-#   # Forcer métrique à dépasser seuil (dev uniquement)
-#   curl -X POST http://localhost:8000/api/simulate-low-traffic
-#   → Endpoint debug désactivant prédictions temporairement
-#
-# QUERIES DEBUG
-#   cv_database_connected  # Valeur actuelle gauge
-#   ALERTS{alertname="DatabaseDisconnected"}  # État alerte (0 ou 1)
-#   ALERTS{alertstate="firing"}  # Toutes alertes firing
-#
-# ═══════════════════════════════════════════════════════════════════════════
-# 📚 RESSOURCES PÉDAGOGIQUES
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# - Alerting rules: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
-# - PromQL functions: https://prometheus.io/docs/prometheus/latest/querying/functions/
-# - Histogram quantiles: https://prometheus.io/docs/practices/histograms/
-# - Severity levels: https://www.atlassian.com/incident-management/kpis/severity-levels
-# - SLO/SLA design: https://sre.google/workbook/implementing-slos/
-#
-# ═══════════════════════════════════════════════════════════════════════════
-# 🎯 AMÉLIORATION CONTINUE - EXAMPLES
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# 1. AFFINER SEUILS (après collecte données réelles)
-#    - P95 latency : ajuster selon SLA contractuel
-#    - Feedback rate : baseline sur 30 jours de prod
-#    - Prediction rate : distinguer heures pleines/creuses
-#
-# 2. AJOUTER RUNBOOKS
-#    - Documenter procédures debugging pour chaque alerte
-#    - Lier via runbook_url dans annotations
-#    - Inclure commands exactes (pas de "vérifier logs")
-#
-# 3. ALERTES BUSINESS SUPPLÉMENTAIRES
-#    - alert: ModelAccuracyDegraded (si tracking accuracy temps réel)
-#    - alert: UnbalancedPredictions (ratio cats/dogs hors norme)
-#    - alert: HighErrorRate (predictions_total{result="error"})
-#
-# 4. INTÉGRATION ALERTMANAGER
-#    - Grouping : regrouper alertes similaires (évite spam)
-#    - Routing : warnings → email, critical → PagerDuty
-#    - Silences : désactiver temporairement (maintenance planifiée)
-#
-# ═══════════════════════════════════════════════════════════════════════════
