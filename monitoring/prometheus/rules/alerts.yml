@@ -20,3 +20,23 @@ groups:
         annotations:
           summary: "Database connection lost"
           description: "PostgreSQL is unreachable. Feedback storage disabled."
+
+# ajout ici mais inutilisé pour le moment voir grafana
+
+      - alert: alert_high_latency
+        expr: rate(cv_inference_time_seconds_sum[5m]) / rate(cv_inference_time_seconds_count[5m]) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latence élevée détectée"
+          description: "Latence moyenne > 2s pendant 2 minutes"
+
+      - alert: HighNegativeFeedback
+        expr: (sum(rate(cv_feedback_total{type="negative"}[5m])) / sum(rate(cv_feedback_total[5m]))) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Taux élevé de feedbacks négatifs (>30%)"
+          description: "Le taux de feedbacks négatifs est de {{ $value | printf \"%.2f\" }}."

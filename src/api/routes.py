@@ -37,17 +37,11 @@ from pathlib import Path
 import time
 import os
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 📂 CONFIGURATION PATHS
-# ─────────────────────────────────────────────────────────────────────────────
 ROOT_DIR = Path(__file__).parent.parent.parent
 # 📁 Remonte de 3 niveaux : routes.py → api/ → src/ → racine
 sys.path.insert(0, str(ROOT_DIR))
 # 🔧 Ajoute racine au PYTHONPATH (permet imports absolus depuis src/)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 📦 IMPORTS CORE (toujours actifs, V2 conservée)
-# ─────────────────────────────────────────────────────────────────────────────
 from .auth import verify_token  # 🔐 Authentification JWT/Bearer
 from src.models.predictor import CatDogPredictor  # 🧠 Modèle CNN
 
@@ -58,20 +52,7 @@ from src.database.feedback_service import FeedbackService  # 📊 CRUD feedbacks
 # Monitoring V2 (Plotly dashboards - conservé)
 from src.monitoring.dashboard_service import DashboardService  # 📈 Graphiques Plotly
 
-from src.monitoring.prometheus_metrics import track_inference_time
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 🆕 V3 - CONDITIONAL IMPORTS (activation optionnelle)
-# ═══════════════════════════════════════════════════════════════════════════
-# 💡 STRATÉGIE DE COMPATIBILITÉ
-# Les fonctionnalités V3 (Prometheus, Discord) sont OPTIONNELLES :
-# - Si désactivées → app fonctionne comme en V2 (aucun impact)
-# - Si activées → ajoutent métriques et alertes en plus
-# 
-# AVANTAGES
-# ✅ Déploiement incrémental (tester V3 sans tout casser)
-# ✅ Rollback facile (désactiver via .env si problème)
-# ✅ Environnements différents (Prometheus en prod, pas en dev)
+from src.monitoring.prometheus_metrics import track_inference_time, track_prediction, track_feedback
 
 ENABLE_PROMETHEUS = os.getenv('ENABLE_PROMETHEUS', 'false').lower() == 'true'
 # 📊 Flag activation Prometheus (lu depuis .env)
@@ -81,21 +62,7 @@ ENABLE_DISCORD = os.getenv('DISCORD_WEBHOOK_URL') is not None
 # 📢 Flag activation Discord (présence du webhook suffit)
 # Logique : si URL fournie → intention d'utiliser Discord
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 🔄 DÉCLARATION VARIABLES GLOBALES (évite NameError si imports échouent)
-# ─────────────────────────────────────────────────────────────────────────────
-# 💡 PATTERN : Initialiser à None puis assigner conditionnellement
-# Alternative : wrapper dans try/except à chaque usage (plus verbeux)
-alert_high_latency = None
-alert_database_disconnected = None
-notifier = None
-track_prediction = None
-track_feedback = None
-update_db_status = None
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 📊 IMPORT PROMETHEUS (si activé)
-# ─────────────────────────────────────────────────────────────────────────────
 if ENABLE_PROMETHEUS:
     try:
         from src.monitoring.prometheus_metrics import (
@@ -109,9 +76,6 @@ if ENABLE_PROMETHEUS:
         print(f"⚠️  Prometheus tracking not available: {e}")
         # 💡 Graceful degradation : app continue sans Prometheus
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 📢 IMPORT DISCORD (si activé)
-# ─────────────────────────────────────────────────────────────────────────────
 if ENABLE_DISCORD:
     try:
         from src.monitoring.discord_notifier import (
@@ -127,28 +91,16 @@ if ENABLE_DISCORD:
         ENABLE_DISCORD = False
         print(f"⚠️  Discord notifier not available: {e}")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 🎨 CONFIGURATION TEMPLATES JINJA2
-# ─────────────────────────────────────────────────────────────────────────────
 TEMPLATES_DIR = ROOT_DIR / "src" / "web" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # 📄 Templates HTML : index.html, inference.html, monitoring.html, info.html
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 🚀 INITIALISATION ROUTER ET SERVICES
-# ─────────────────────────────────────────────────────────────────────────────
 router = APIRouter()
 # 📌 Router FastAPI (groupage des endpoints)
 # Sera inclus dans main.py : app.include_router(router)
 
 predictor = CatDogPredictor()
 # 🧠 Chargement du modèle CNN au démarrage (singleton)
-# Lazy loading : modèle chargé en mémoire dès l'import
-# Alternative : chargement à la première requête (startup event)
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 🌐 PAGES WEB (Interface Utilisateur)
-# ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/", response_class=HTMLResponse, tags=["🌐 Page Web"])
 async def welcome(request: Request):
@@ -213,10 +165,6 @@ async def inference_page(request: Request):
         "model_loaded": predictor.is_loaded()
     })
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 🧠 API INFÉRENCE
-# ═══════════════════════════════════════════════════════════════════════════
-
 @router.post("/api/predict", tags=["🧠 Inférence"])
 async def predict_api(
     file: UploadFile = File(...),
@@ -249,9 +197,7 @@ async def predict_api(
         HTTPException 400: Format fichier invalide
         HTTPException 500: Erreur inférence
     """
-    # ─────────────────────────────────────────────────────────────────────────
-    # ✅ VALIDATIONS PRÉLIMINAIRES
-    # ─────────────────────────────────────────────────────────────────────────
+
     if not predictor.is_loaded():
         raise HTTPException(status_code=503, detail="Modèle non disponible")
         # 503 Service Unavailable : temporaire, retry possible
@@ -260,48 +206,31 @@ async def predict_api(
         raise HTTPException(status_code=400, detail="Format d'image invalide")
         # Accepte : image/jpeg, image/png, image/webp, etc.
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # ⏱️ MESURE TEMPS D'INFÉRENCE (début)
-    # ─────────────────────────────────────────────────────────────────────────
     start_time = time.perf_counter()
     # perf_counter() : horloge haute précision (nanoseconde sur Linux)
     # Alternative : time.time() (moins précis, impacté par ajustements NTP)
     
     try:
-        # ─────────────────────────────────────────────────────────────────────
-        # 📸 LECTURE ET PRÉDICTION
-        # ─────────────────────────────────────────────────────────────────────
+
         image_data = await file.read()
         # 📥 Lecture asynchrone du fichier uploadé (bytes)
         
         result = predictor.predict(image_data)
         # 🧠 Inférence CNN (voir src/models/predictor.py)
-        # result = {
-        #     "prediction": "Cat" ou "Dog",
-        #     "confidence": 0.95,
-        #     "probabilities": {"cat": 0.95, "dog": 0.05}
-        # }
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # ⏱️ CALCUL TEMPS D'INFÉRENCE (fin)
-        # ─────────────────────────────────────────────────────────────────────
+
         end_time = time.perf_counter()
         inference_time_ms = int((end_time - start_time) * 1000)
         # Conversion secondes → millisecondes (plus lisible pour latence)
         # Typage int : évite JSON avec .567823478 ms
+
+        if ENABLE_PROMETHEUS:
+            track_prediction(result["prediction"].lower())  # "cat" ou "dog"
+            track_inference_time(inference_time_ms)
         
-        track_inference_time(inference_time_ms)
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # 📊 FORMATAGE PROBABILITÉS (pour DB)
-        # ─────────────────────────────────────────────────────────────────────
         proba_cat = result['probabilities']['cat'] * 100  # 0.95 → 95.0
         proba_dog = result['probabilities']['dog'] * 100
         # Stockage en pourcentage (plus intuitif en base)
         
-        # ─────────────────────────────────────────────────────────────────────
-        # 💾 SAUVEGARDE EN BASE DE DONNÉES (V2 - inchangé)
-        # ─────────────────────────────────────────────────────────────────────
         feedback_record = FeedbackService.save_prediction_feedback(
             db=db,
             inference_time_ms=inference_time_ms,
@@ -314,13 +243,7 @@ async def predict_api(
             user_feedback=None,  # Sera mis à jour via /api/update-feedback
             user_comment=None
         )
-        
-        #update_db_status(True)
-        # 📝 Retourne objet ORM PredictionFeedback avec .id auto-généré
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # 📤 RÉPONSE API (V2 - inchangé)
-        # ─────────────────────────────────────────────────────────────────────
+
         response_data = {
             "filename": file.filename,
             "prediction": result["prediction"],  # "Cat" ou "Dog"
@@ -336,9 +259,7 @@ async def predict_api(
         return response_data
         
     except Exception as e:
-        # ─────────────────────────────────────────────────────────────────────
-        # 🚨 GESTION ERREURS (logging même en cas d'échec)
-        # ─────────────────────────────────────────────────────────────────────
+
         end_time = time.perf_counter()
         inference_time_ms = int((end_time - start_time) * 1000)
         
@@ -360,10 +281,6 @@ async def predict_api(
             pass  # Double échec = on abandonne (évite cascade)
         
         raise HTTPException(status_code=500, detail=f"Erreur de prédiction: {str(e)}")
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 📊 API FEEDBACK UTILISATEUR
-# ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/api/update-feedback", tags=["📊 Monitoring"])
 async def update_feedback(
@@ -400,9 +317,6 @@ async def update_feedback(
     try:
         from src.database.models import PredictionFeedback
         
-        # ─────────────────────────────────────────────────────────────────────
-        # 🔍 RÉCUPÉRATION DE L'ENREGISTREMENT
-        # ─────────────────────────────────────────────────────────────────────
         record = db.query(PredictionFeedback).filter(
             PredictionFeedback.id == feedback_id
         ).first()
@@ -413,29 +327,18 @@ async def update_feedback(
                 detail="Enregistrement de feedback non trouvé"
             )
         
-        # ─────────────────────────────────────────────────────────────────────
-        # 🔐 VÉRIFICATION CONSENTEMENT RGPD
-        # ─────────────────────────────────────────────────────────────────────
         if not record.rgpd_consent:
             raise HTTPException(
                 status_code=403,
                 detail="Consentement RGPD non accepté. Impossible de stocker le feedback."
             )
-            # 💡 LOGIQUE RGPD
-            # - Si consent=False à la prédiction → pas de mise à jour feedback
-            # - Respect article 7 RGPD (consentement spécifique et éclairé)
         
-        # ─────────────────────────────────────────────────────────────────────
-        # ✏️ MISE À JOUR DES CHAMPS
-        # ─────────────────────────────────────────────────────────────────────
         if user_feedback is not None:
-            if user_feedback not in [0, 1]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="user_feedback doit être 0 ou 1"
-                )
             record.user_feedback = user_feedback
-        
+            if ENABLE_PROMETHEUS:
+                feedback_type = "positive" if user_feedback == 1 else "negative"
+                track_feedback(feedback_type)  # 🆕 Track feedback
+
         if user_comment:
             record.user_comment = user_comment
         
@@ -450,10 +353,6 @@ async def update_feedback(
             status_code=500,
             detail=f"Erreur lors de la mise à jour: {str(e)}"
         )
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 📊 API STATISTIQUES & MONITORING
-# ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/api/statistics", tags=["📊 Monitoring"])
 async def get_statistics(db: Session = Depends(get_db)):
@@ -501,9 +400,6 @@ async def get_recent_predictions(
     try:
         predictions = FeedbackService.get_recent_predictions(db, limit=limit)
         
-        # ─────────────────────────────────────────────────────────────────────
-        # 📦 FORMATAGE POUR JSON (conversion types SQLAlchemy)
-        # ─────────────────────────────────────────────────────────────────────
         results = []
         for pred in predictions:
             results.append({
@@ -573,19 +469,14 @@ async def monitoring_dashboard(request: Request, db: Session = Depends(get_db)):
     🆕 V3 - Ajout liens Grafana/Prometheus dans le template
     """
     try:
-        # ─────────────────────────────────────────────────────────────────────
-        # 📊 RÉCUPÉRATION DONNÉES DASHBOARD (V2 - inchangé)
-        # ─────────────────────────────────────────────────────────────────────
+
         dashboard_data = DashboardService.get_dashboard_data(db)
         # Retourne dict avec :
         # - avg_inference_time : float (ms)
         # - satisfaction_rate : float (%)
         # - inference_time_chart : HTML Plotly
         # - satisfaction_chart : HTML Plotly
-        
-        # ═════════════════════════════════════════════════════════════════════
-        # 🆕 V3 - AJOUT INFO MONITORING EXTERNE
-        # ═════════════════════════════════════════════════════════════════════
+
         dashboard_data["grafana_url"] = "http://localhost:3000" if ENABLE_PROMETHEUS else None
         dashboard_data["prometheus_url"] = "http://localhost:9090" if ENABLE_PROMETHEUS else None
         # 💡 Affiche liens cliquables dans le template si monitoring actif
@@ -600,10 +491,6 @@ async def monitoring_dashboard(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "error": f"Erreur lors du chargement des données : {str(e)}"
         })
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 💚 HEALTH CHECK
-# ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/health", tags=["💚 Santé système"])
 async def health_check(db: Session = Depends(get_db)):
@@ -629,9 +516,7 @@ async def health_check(db: Session = Depends(get_db)):
     db_connected = True
     
     try:
-        # ─────────────────────────────────────────────────────────────────────
-        # 🗄️ TEST CONNEXION BASE DE DONNÉES
-        # ─────────────────────────────────────────────────────────────────────
+
         from sqlalchemy import text
         db.execute(text("SELECT 1"))
         # Query minimale (pas de table nécessaire)
@@ -641,9 +526,6 @@ async def health_check(db: Session = Depends(get_db)):
         db_status = f"error: {str(e)}"
         db_connected = False
         
-        # ═════════════════════════════════════════════════════════════════════
-        # 🆕 V3 - ALERTE DISCORD SI DB DÉCONNECTÉE
-        # ═════════════════════════════════════════════════════════════════════
         if ENABLE_DISCORD:
             try:
                 if alert_database_disconnected:
@@ -654,9 +536,6 @@ async def health_check(db: Session = Depends(get_db)):
                 print(f"⚠️  Discord alert failed: {discord_error}")
                 # Double échec = on log mais pas de cascade
     
-    # ═════════════════════════════════════════════════════════════════════════
-    # 🆕 V3 - MISE À JOUR STATUT DB DANS PROMETHEUS
-    # ═════════════════════════════════════════════════════════════════════════
     if ENABLE_PROMETHEUS and update_db_status:
         try:
             update_db_status(db_connected)
@@ -665,9 +544,6 @@ async def health_check(db: Session = Depends(get_db)):
         except Exception as e:
             print(f"⚠️  Prometheus status update failed: {e}")
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # 📤 RÉPONSE HEALTHCHECK
-    # ─────────────────────────────────────────────────────────────────────────
     return {
         "status": "healthy" if db_status == "connected" else "degraded",
         # "degraded" = service up mais fonctionnalité réduite (feedback disabled)
@@ -679,40 +555,3 @@ async def health_check(db: Session = Depends(get_db)):
             "discord": ENABLE_DISCORD
         }
     }
-    # 💡 STATUS CODES
-    # 200 OK : retourné même si degraded (service répond)
-    # Alternative : 503 si database down (force retry par LB)
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 🎓 PATTERNS ARCHITECTURAUX ILLUSTRÉS
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# 1. DEPENDENCY INJECTION (FastAPI Depends)
-#    Avantages :
-#    - Testabilité : mock db/token facilement
-#    - Réutilisabilité : get_db partagé entre tous endpoints
-#    - Gestion lifecycle : connexion DB fermée auto
-#
-# 2. SEPARATION OF CONCERNS
-#    routes.py : orchestration HTTP
-#    predictor.py : logique ML
-#    feedback_service.py : logique métier DB
-#    → Chaque module a 1 responsabilité claire
-#
-# 3. GRACEFUL DEGRADATION
-#    Prometheus/Discord absents → app fonctionne quand même
-#    DB down → healthcheck "degraded" mais API up
-#    → Résilience par design
-#
-# 4. OBSERVABILITY LAYERS
-#    - Logs : print() (remplacer par logging en prod)
-#    - Metrics : Prometheus (agrégées, queryable)
-#    - Alerting : Discord (incidents critiques)
-#    - Tracing : (absent, ajout possible avec OpenTelemetry)
-#
-# 5. BACKWARD COMPATIBILITY
-#    V3 = superset de V2 (aucun endpoint supprimé)
-#    Nouveaux params optionnels (ENABLE_*)
-#    → Migration progressive sans breaking change
-#
-# ═══════════════════════════════════════════════════════════════════════════

@@ -3,109 +3,169 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 apiVersion: 1
-
 groups:
-  
-  - orgId: 1
-    name: cv-alert_high_latency
-    folder: Computer Vision
-    interval: 2m
-    rules:
-      - uid: af4i9i3g3mmtcf
-        title: alert_high_latency
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: prometheus
-            model:
-              editorMode: builder
-              expr: rate(cv_inference_time_seconds_sum[5m]) / rate(cv_inference_time_seconds_count[5m])
-              instant: true
-              intervalMs: 1000
-              legendFormat: __auto
-              maxDataPoints: 43200
-              range: false
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                  - evaluator:
-                      params:
-                          - 0.075
-                      type: gt
-                    operator:
-                      type: and
-                    query:
-                      params:
-                          - C
-                    reducer:
-                      params: []
-                      type: last
-                    type: query
-              datasource:
-                  type: __expr__
-                  uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: C
-              type: threshold
-        noDataState: NoData
-        execErrState: Error
-        for: 2m
-        keepFiringFor: 2m
-        annotations:
-          description: Latence moyenne > 2s pendant 2 minutes
-          summary: Latence élevée détectée
-        labels: {}
-        isPaused: false
-        notification_settings:
-          receiver: Discord CV Alerts  
-  
-  - orgId: 1
-    name: cv-monitoring
-    folder: Computer Vision
-    interval: 1m
-    rules:
-      - uid: cv-db-disconnected
-        title: Database Disconnected
-        condition: C
-        data:
-          - refId: A
-            queryType: ''
-            relativeTimeRange:
-              from: 600  # -10 minutes
-              to: 0      # maintenant            
-            datasourceUid: prometheus
-            model:
-              editorMode: code
-              expr: cv_database_connected
-              instant: true
-              range: false
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params:
-                      - 1
-                    type: lt
-                  reducer:
-                    type: last
-                  type: query
-              expression: A
-              type: threshold
-        noDataState: Alerting
-        execErrState: Alerting
-        for: 1m
-        annotations:
-          description: L'API ne peut plus accéder à PostgreSQL
-          summary: Base de données PostgreSQL déconnectée
-        labels:
-          severity: critical
-        isPaused: false
+    - orgId: 1
+      name: cv-High_Negative_Feedback
+      folder: Computer Vision
+      interval: 1m
+      rules:
+        - uid: ff4sct0zu48w0e
+          title: HighNegativeFeedback
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                editorMode: builder
+                expr: sum(rate(cv_feedback_total{type="negative"}[5m])) / sum(rate(cv_feedback_total[5m]))
+                instant: true
+                intervalMs: 1000
+                legendFormat: __auto
+                maxDataPoints: 43200
+                range: false
+                refId: A
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: NoData
+          execErrState: Error
+          for: 1m
+          annotations:
+            description: Le taux de feedbacks négatifs est de {{ $value | printf \"%.2f\" }}.
+            summary: Taux élevé de feedbacks négatifs (>30%)
+          isPaused: false
+          notification_settings:
+            receiver: Discord CV Alerts
+    - orgId: 1
+      name: cv-alert_high_latency
+      folder: Computer Vision
+      interval: 2m
+      rules:
+        - uid: af4i9i3g3mmtcf
+          title: alert_high_latency
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                editorMode: builder
+                expr: rate(cv_inference_time_seconds_sum[5m]) / rate(cv_inference_time_seconds_count[5m])
+                instant: true
+                intervalMs: 1000
+                legendFormat: __auto
+                maxDataPoints: 43200
+                range: false
+                refId: A
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.075
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          dashboardUid: ""
+          panelId: 0
+          noDataState: NoData
+          execErrState: Error
+          for: 2m
+          keepFiringFor: 2m
+          annotations:
+            description: Latence moyenne > 2s pendant 2 minutes
+            summary: Latence élevée détectée
+          isPaused: false
+          notification_settings:
+            receiver: Discord CV Alerts
+    - orgId: 1
+      name: cv-monitoring
+      folder: Computer Vision
+      interval: 1m
+      rules:
+        - uid: cv-db-disconnected
+          title: Database Disconnected
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                editorMode: code
+                expr: cv_database_connected
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                range: false
+                refId: A
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 1
+                        type: lt
+                      reducer:
+                        type: last
+                      type: query
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                type: threshold
+          dashboardUid: ""
+          panelId: 0
+          noDataState: Alerting
+          execErrState: Alerting
+          for: 1m
+          annotations:
+            description: L'API ne peut plus accéder à PostgreSQL
+            summary: Base de données PostgreSQL déconnectée
+          labels:
+            severity: critical
+          isPaused: false
